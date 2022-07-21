@@ -12,6 +12,7 @@ vid = cv2.VideoCapture(0)
 # define anchor and positive path
 anchor_path = os.path.join('data', 'anchor')
 positive_path = os.path.join('data', 'positive')
+negative_path = os.path.join('data', 'negative')
 
 cap = cv2.VideoCapture(0)
 while cap.isOpened():
@@ -26,6 +27,13 @@ while cap.isOpened():
         img_name = os.path.join(anchor_path, '{}.jpg'.format(uuid.uuid1()))
         # Write out anchor image
         cv2.imwrite(img_name, frame)
+
+        # Collect negatives
+        if cv2.waitKey(1) & 0XFF == ord('n'):
+            # Create the unique file path
+            img_name = os.path.join(negative_path, '{}.jpg'.format(uuid.uuid1()))
+            # Write out positive image
+            cv2.imwrite(img_name, frame)
 
     # Collect positives
     if cv2.waitKey(1) & 0XFF == ord('p'):
