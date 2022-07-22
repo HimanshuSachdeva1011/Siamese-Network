@@ -15,9 +15,10 @@ positive_path = os.path.join('data', 'positive')
 negative_path = os.path.join('data', 'negative')
 
 cap = cv2.VideoCapture(0)
+
 while cap.isOpened():
     ret, frame = cap.read()
-
+    # time is in milliseconds
     # Cut down frame to 250x250px
     frame = frame[120:120 + 250, 200:200 + 250, :]
 
