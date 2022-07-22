@@ -19,9 +19,9 @@ positive_path = os.path.join('data', 'positive')
 negative_path = os.path.join('data', 'negative')
 
 # Load the dataset
-anchor = tf.data.Dataset.list_files(anchor_path+'\*.jpg').take(300)
-positive = tf.data.Dataset.list_files(positive_path+'\*.jpg').take(300)
-negative = tf.data.Dataset.list_files(negative_path+'\*.jpg').take(300)
+anchor = tf.data.Dataset.list_files(anchor_path+'\*.jpg').take(55)
+positive = tf.data.Dataset.list_files(positive_path+'\*.jpg').take(55)
+negative = tf.data.Dataset.list_files(negative_path+'\*.jpg').take(55)
 
 
 def preprocess(file_path):
@@ -35,6 +35,14 @@ def preprocess(file_path):
     img = img / 255.0
 
     return img
+
+
+# Label the dataset
+pos_ve = tf.data.Dataset.zip((anchor, positive, tf.data.Dataset.from_tensor_slices(tf.ones(len(anchor)))))
+neg_ve = tf.data.Dataset.zip((anchor, negative, tf.data.Dataset.from_tensor_slices(tf.ones(len(anchor)))))
+
+# Concatenate files to data variable
+data = pos_ve.concatenate(neg_ve)
 
 
 def make_model():
@@ -53,7 +61,7 @@ def make_model():
     f1 = Flatten()(c4)
     d1 = Dense(4096, activation='sigmoid')(f1)
 
-    return Model(inputs=[inp], outputs=[d1], name='embedding')
+    return Model(inputs=inp, outputs=d1, name='embedding')
 
 
 embedding = make_model()
