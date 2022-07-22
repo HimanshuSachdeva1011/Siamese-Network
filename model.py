@@ -1,17 +1,16 @@
 import os
-
-import keras.losses
-from keras import losses, optimizers
+from keras import optimizers, losses
 from keras.models import Model
 from keras.layers import Layer, Conv2D, Dense, MaxPooling2D, Input, Flatten
 import tensorflow as tf
 from tensorflow import train
+from keras.utils import Progbar
 
+# GPU
 gpus = tf.config.experimental.list_physical_devices('GPU')
 for gpu in gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
 
-# GPU
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 # define anchor and positive path
@@ -19,10 +18,10 @@ anchor_path = os.path.join('data', 'anchor')
 positive_path = os.path.join('data', 'positive')
 negative_path = os.path.join('data', 'negative')
 
-# Load the dataset
-anchor = tf.data.Dataset.list_files(anchor_path+'\*.jpg').take(58)
-positive = tf.data.Dataset.list_files(positive_path+'\*.jpg').take(58)
-negative = tf.data.Dataset.list_files(negative_path+'\*.jpg').take(58)
+# load dataset
+anchor = tf.data.Dataset.list_files(anchor_path+'\*.jpg').take(85)
+positive = tf.data.Dataset.list_files(positive_path+'\*.jpg').take(85)
+negative = tf.data.Dataset.list_files(negative_path+'\*.jpg').take(85)
 
 
 def preprocess(file_path):
@@ -30,9 +29,9 @@ def preprocess(file_path):
     byte_img = tf.io.read_file(file_path)
     img = tf.io.decode_jpeg(byte_img)
 
-    # Resizing the image to be 105x105x3
+    # Resizing the image to 105x105x3
     img = tf.image.resize(img, (105, 105))
-    # Scaling the image between 0 and 1
+    # Scale the image b/w 0 and 1
     img = img / 255.0
 
     return img
@@ -48,7 +47,7 @@ neg_ve = tf.data.Dataset.zip((anchor, negative, tf.data.Dataset.from_tensor_slic
 data = pos_ve.concatenate(neg_ve)
 
 
-# Train And Test Partition
+# train test partition
 def preprocess_twin(input_img, validation_img, label):
     return preprocess(input_img), preprocess(validation_img), label
 
@@ -68,6 +67,10 @@ test_data = data.skip(round(len(data)*.7))
 test_data = test_data.take(round(len(data)*.3))
 test_data = test_data.batch(16)
 test_data = test_data.prefetch(8)
+
+'''
+embed: inp->conv(64,(10,10))+max-pool(64,(2,2)) -> conv(128,(4,4)+max-pool(128,(2,2)) -> conv(256,(4,4)) -> dense(4096)
+'''
 
 
 def make_model_embedding():
@@ -102,7 +105,7 @@ class L1Dist(Layer):
         return tf.math.abs(input_embedding - validation_embedding)
 
 
-def make_siamese():
+def make_siamese_model():
 
     # input images
     input_img = Input(name='inp_img', shape=(105, 105, 3))
@@ -113,10 +116,70 @@ def make_siamese():
     # input image and validation image passed through embedding function
     distances = siamese_lr(embedding(input_img), embedding(validation_img))
 
-    cl_lr = Dense(1, activation="sigmoid")(distances)
+    # structure: embedding \
+    #            embedding -> distance layer -> output
+    # Dense output layer, Sigmoid for 0 or 1 output value
+    op_lr = Dense(1, activation="sigmoid")(distances)
 
-    return Model(inputs=[input_img, validation_img], outputs=cl_lr)
+    return Model(inputs=[input_img, validation_img], outputs=op_lr)
 
 
-siamese = make_siamese()
-print(siamese.summary())
+siamese_model = make_siamese_model()
+
+opt = optimizers.Adam(1e-4)
+binary_loss = losses.BinaryCrossentropy()
+
+# checkpoints
+checkpoint_dir = './training_checkpoints'
+checkpoint_prefix = os.path.join(checkpoint_dir, 'ckpt')
+checkpoint = tf.train.Checkpoint(opt=opt, siamese_mdl=siamese_model)
+
+
+@tf.function
+def train_step(batch):
+    with tf.GradientTape() as tape:
+        # image
+        x = batch[:2]
+        # label
+        y = batch[2]
+
+        # Forward pass
+        yhat = siamese_model(x, training=True)
+        # Calculate loss
+        loss = binary_loss(y, yhat)
+
+    print(loss)
+
+    # Calculate gradient (Forward Pass)
+    grad = tape.gradient(loss, siamese_model.trainable_variables)
+
+    # Updated weights applied to siamese model (Backward pass)
+    opt.apply_gradients(zip(grad, siamese_model.trainable_variables))
+
+    # Return loss
+    return loss
+
+
+def train(dat, epochs):
+    # Loop through epochs
+    for epoch in range(1, epochs + 1):
+        print('\n Epoch {}/{}'.format(epoch, epochs))
+        progbar = tf.keras.utils.Progbar(len(dat))
+
+        # Loop through each batch
+        for idx, batch in enumerate(dat):
+            # Run train step here
+            train_step(batch)
+            progbar.update(idx + 1)
+
+        # Save checkpoints
+        if epoch % 10 == 0:
+            checkpoint.save(file_prefix=checkpoint_prefix)
+
+
+# bombs away
+epoch = 50
+train(train_data, epoch)
+
+# accuracy and other metrics
+# TBD
