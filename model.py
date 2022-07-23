@@ -172,6 +172,8 @@ train(train_data, epoch)
 test_input, test_val, y_true = test_data.as_numpy_iterator().next()
 y_hat = siamese_model.predict([test_input, test_val])
 
+# append results to array
+
 res = []
 for prediction in y_hat:
     if prediction > 0.5:
