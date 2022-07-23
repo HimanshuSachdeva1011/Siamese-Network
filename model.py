@@ -5,12 +5,11 @@ from keras.layers import Layer, Conv2D, Dense, MaxPooling2D, Input, Flatten
 import tensorflow as tf
 from tensorflow import train
 from keras.utils import Progbar
+from keras.metrics import Precision, Recall
 
 # GPU
 gpus = tf.config.experimental.list_physical_devices('GPU')
-for gpu in gpus:
-    tf.config.experimental.set_memory_growth(gpu, True)
-
+# Ignores those Big GPU Messages
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 # define anchor and positive path
@@ -19,9 +18,9 @@ positive_path = os.path.join('data', 'positive')
 negative_path = os.path.join('data', 'negative')
 
 # load dataset
-anchor = tf.data.Dataset.list_files(anchor_path+'\*.jpg').take(85)
-positive = tf.data.Dataset.list_files(positive_path+'\*.jpg').take(85)
-negative = tf.data.Dataset.list_files(negative_path+'\*.jpg').take(85)
+anchor = tf.data.Dataset.list_files(anchor_path+'\*.jpg').take(107)
+positive = tf.data.Dataset.list_files(positive_path+'\*.jpg').take(107)
+negative = tf.data.Dataset.list_files(negative_path+'\*.jpg').take(107)
 
 
 def preprocess(file_path):
@@ -68,9 +67,7 @@ test_data = test_data.take(round(len(data)*.3))
 test_data = test_data.batch(16)
 test_data = test_data.prefetch(8)
 
-'''
-embed: inp->conv(64,(10,10))+max-pool(64,(2,2)) -> conv(128,(4,4)+max-pool(128,(2,2)) -> conv(256,(4,4)) -> dense(4096)
-'''
+# embed: inp->conv(64,(10,10))+max-pool(64,(2,2))->conv(128,(4,4)+max-pool(128,(2,2)) -> conv(256,(4,4)) -> dense(4096)
 
 
 def make_model_embedding():
@@ -105,6 +102,9 @@ class L1Dist(Layer):
         return tf.math.abs(input_embedding - validation_embedding)
 
 
+# embedding ↘
+#            distance_layer → output
+# embedding ↗
 def make_siamese_model():
 
     # input images
@@ -115,10 +115,7 @@ def make_siamese_model():
     siamese_lr._name = 'dist'
     # input image and validation image passed through embedding function
     distances = siamese_lr(embedding(input_img), embedding(validation_img))
-
-    # structure: embedding \
-    #            embedding -> distance layer -> output
-    # Dense output layer, Sigmoid for 0 or 1 output value
+    # dense output layer for result
     op_lr = Dense(1, activation="sigmoid")(distances)
 
     return Model(inputs=[input_img, validation_img], outputs=op_lr)
@@ -128,11 +125,6 @@ siamese_model = make_siamese_model()
 
 opt = optimizers.Adam(1e-4)
 binary_loss = losses.BinaryCrossentropy()
-
-# checkpoints
-checkpoint_dir = './training_checkpoints'
-checkpoint_prefix = os.path.join(checkpoint_dir, 'ckpt')
-checkpoint = tf.train.Checkpoint(opt=opt, siamese_mdl=siamese_model)
 
 
 @tf.function
@@ -152,7 +144,6 @@ def train_step(batch):
 
     # Calculate gradient (Forward Pass)
     grad = tape.gradient(loss, siamese_model.trainable_variables)
-
     # Updated weights applied to siamese model (Backward pass)
     opt.apply_gradients(zip(grad, siamese_model.trainable_variables))
 
@@ -160,11 +151,11 @@ def train_step(batch):
     return loss
 
 
-def train(dat, epochs):
+def train(dat, tot_epochs):
     # Loop through epochs
-    for epoch in range(1, epochs + 1):
-        print('\n Epoch {}/{}'.format(epoch, epochs))
-        progbar = tf.keras.utils.Progbar(len(dat))
+    for epochs in range(1, tot_epochs + 1):
+        print('Epoch {} out of {}'.format(epochs, tot_epochs))
+        progbar = Progbar(len(dat))
 
         # Loop through each batch
         for idx, batch in enumerate(dat):
@@ -172,14 +163,26 @@ def train(dat, epochs):
             train_step(batch)
             progbar.update(idx + 1)
 
-        # Save checkpoints
-        if epoch % 10 == 0:
-            checkpoint.save(file_prefix=checkpoint_prefix)
-
 
 # bombs away
-epoch = 50
+epoch = 30
 train(train_data, epoch)
 
 # accuracy and other metrics
-# TBD
+test_input, test_val, y_true = test_data.as_numpy_iterator().next()
+y_hat = siamese_model.predict([test_input, test_val])
+
+res = []
+for prediction in y_hat:
+    if prediction > 0.5:
+        res.append(1)
+    else:
+        res.append(1)
+
+rec = Recall()
+rec.update_state(y_true, y_hat)
+print(rec.result().numpy())
+
+prec_ = Precision()
+prec_.update_state(y_true, y_hat)
+print(prec_.result().numpy())

@@ -1,9 +1,5 @@
 import cv2
-import tensorflow as tf
-import numpy as np
 import uuid
-import random
-import matplotlib.pyplot as plt
 import os
 
 # define a video capture object
