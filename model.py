@@ -6,6 +6,8 @@ import tensorflow as tf
 from tensorflow import train
 from keras.utils import Progbar
 from keras.metrics import Precision, Recall
+from keras.models import load_model
+import numpy as np
 
 # GPU
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -18,27 +20,25 @@ positive_path = os.path.join('data', 'positive')
 negative_path = os.path.join('data', 'negative')
 
 # load dataset
-anchor = tf.data.Dataset.list_files(anchor_path+'\*.jpg').take(107)
-positive = tf.data.Dataset.list_files(positive_path+'\*.jpg').take(107)
-negative = tf.data.Dataset.list_files(negative_path+'\*.jpg').take(107)
+anchor = tf.data.Dataset.list_files(anchor_path+'\*.jpg').take(227)
+positive = tf.data.Dataset.list_files(positive_path+'\*.jpg').take(227)
+negative = tf.data.Dataset.list_files(negative_path+'\*.jpg').take(227)
 
 
 def preprocess(file_path):
 
     byte_img = tf.io.read_file(file_path)
     img = tf.io.decode_jpeg(byte_img)
-
-    # Resizing the image to 105x105x3
+    # Resizing image to 105x105x3
     img = tf.image.resize(img, (105, 105))
-    # Scale the image b/w 0 and 1
+    # Scaling image b/w 0 and 1
     img = img / 255.0
 
     return img
 
 
-# Label the dataset
-# pos_ve = ones of anchor length
-# neg_ve = zeros of anchor length
+# pos_ve = labelled ones of anchor length
+# neg_ve = labelled zeros of anchor length
 pos_ve = tf.data.Dataset.zip((anchor, positive, tf.data.Dataset.from_tensor_slices(tf.ones(len(anchor)))))
 neg_ve = tf.data.Dataset.zip((anchor, negative, tf.data.Dataset.from_tensor_slices(tf.zeros(len(anchor)))))
 
@@ -126,6 +126,12 @@ siamese_model = make_siamese_model()
 opt = optimizers.Adam(1e-4)
 binary_loss = losses.BinaryCrossentropy()
 
+siamese_model.compile(
+    optimizer=opt,
+    loss=binary_loss,
+    metrics=["accuracy"]
+)
+
 
 @tf.function
 def train_step(batch):
@@ -165,7 +171,7 @@ def train(dat, tot_epochs):
 
 
 # bombs away
-epoch = 30
+epoch = 32
 train(train_data, epoch)
 
 # accuracy and other metrics
@@ -173,7 +179,6 @@ test_input, test_val, y_true = test_data.as_numpy_iterator().next()
 y_hat = siamese_model.predict([test_input, test_val])
 
 # append results to array
-
 res = []
 for prediction in y_hat:
     if prediction > 0.5:
@@ -188,3 +193,32 @@ print(rec.result().numpy())
 prec_ = Precision()
 prec_.update_state(y_true, y_hat)
 print(prec_.result().numpy())
+
+# Save Model file
+siamese_model.save("siamese_model.h5")
+
+# reload_model
+mdl = load_model("siamese_model.h5", custom_objects={"L1Dist": L1Dist})
+# test_ = mdl.predict([test_input, test_val])
+# print(test_)
+
+
+def verify(model, detection_threshold, verification_threshold):
+    # Build results array
+    results = []
+    for image in os.listdir(os.path.join('application_data', 'verification_images')):
+        input_img = preprocess(os.path.join('application_data', 'input_image', 'input_image.jpg'))
+        validation_img = preprocess(os.path.join('application_data', 'verification_images', image))
+
+        # Make Predictions
+        result = model.predict(list(np.expand_dims([input_img, validation_img], axis=1)))
+        results.append(result)
+
+    # Detection Threshold: Metric above which a prediction is considered positive
+    detection = np.sum(np.array(results) > detection_threshold)
+
+    # Verification Threshold: Proportion of positive predictions / total positive samples
+    verification = detection / len(os.listdir(os.path.join('application_data', 'verification_images')))
+    verified = verification > verification_threshold
+
+    return results, verified
