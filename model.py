@@ -5,7 +5,6 @@ from keras.layers import Layer, Conv2D, Dense, MaxPooling2D, Input, Flatten
 import tensorflow as tf
 from keras.utils import Progbar
 from keras.metrics import Precision, Recall
-# from tensorflow import train
 
 # GPU
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -18,9 +17,9 @@ positive_path = os.path.join('data', 'positive')
 negative_path = os.path.join('data', 'negative')
 
 # load dataset
-anchor = tf.data.Dataset.list_files(anchor_path+'\*.jpg').take(227)
-positive = tf.data.Dataset.list_files(positive_path+'\*.jpg').take(227)
-negative = tf.data.Dataset.list_files(negative_path+'\*.jpg').take(227)
+anchor = tf.data.Dataset.list_files(anchor_path+'\*.jpg').take(291)
+positive = tf.data.Dataset.list_files(positive_path+'\*.jpg').take(273)
+negative = tf.data.Dataset.list_files(negative_path+'\*.jpg').take(273)
 
 
 def preprocess(file_path):
@@ -158,7 +157,7 @@ def train_step(batch):
 def train(dat, tot_epochs):
     # Loop through epochs
     for epochs in range(1, tot_epochs + 1):
-        print('Epoch {} out of {}'.format(epochs, tot_epochs))
+        print('Epoch {}/{}'.format(epochs, tot_epochs))
         progbar = Progbar(len(dat))
 
         # Loop through each batch
@@ -169,7 +168,7 @@ def train(dat, tot_epochs):
 
 
 # bombs away
-epoch = 32
+epoch = 55
 train(train_data, epoch)
 
 # accuracy and other metrics
@@ -177,13 +176,6 @@ test_input, test_val, y_true = test_data.as_numpy_iterator().next()
 y_hat = siamese_model.predict([test_input, test_val])
 
 # append results to array
-res = []
-for prediction in y_hat:
-    if prediction > 0.5:
-        res.append(1)
-    else:
-        res.append(1)
-
 rec = Recall()
 rec.update_state(y_true, y_hat)
 print(rec.result().numpy())
@@ -193,5 +185,4 @@ prec_.update_state(y_true, y_hat)
 print(prec_.result().numpy())
 
 # Save Model file
-siamese_model.save("siamese_model.h5")
-
+siamese_model.save("siamese.h5")
